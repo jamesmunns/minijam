@@ -23,6 +23,7 @@ pub const SINE_TABLE: [i16; 256] = [
     -9512, -8739, -7962, -7179, -6393, -5602, -4808, -4011, -3212, -2410, -1608, -804,
 ];
 
+#[derive(Copy, Clone)]
 pub enum ToneKind {
     Sine,
     Square,
@@ -113,12 +114,12 @@ impl Tone {
         let mut ct = 1;
 
         // Fade out in 1/8th volume steps over the course of this sample.
-        samples.chunks_mut(samples.len() / 8).for_each(|ch| {
+        samples.chunks_mut(samples.len() / 32).for_each(|ch| {
             ch.iter_mut().for_each(|s| {
                 let samp = next_sample(self) >> shift;
                 let rsamp = samp as i32;
-                let rsamp = rsamp.wrapping_mul(ct); // multiply by 1..=8;
-                let rsamp = rsamp >> 3; // divide by 8
+                let rsamp = rsamp.wrapping_mul(ct); // multiply by 1..=32;
+                let rsamp = rsamp >> 5; // divide by 32
                 let samp = rsamp as i16;
 
                 unsafe {
@@ -136,15 +137,15 @@ impl Tone {
         let shift = mix.to_shift();
 
         // TODO: more gentle?
-        let mut ct = 8;
+        let mut ct = 32;
 
         // Fade out in 1/8th volume steps over the course of this sample.
-        samples.chunks_mut(samples.len() / 8).for_each(|ch| {
+        samples.chunks_mut(samples.len() / 32).for_each(|ch| {
             ch.iter_mut().for_each(|s| {
                 let samp = next_sample(self) >> shift;
                 let rsamp = samp as i32;
-                let rsamp = rsamp.wrapping_mul(ct); // multiply by 1..=8;
-                let rsamp = rsamp >> 3; // divide by 8
+                let rsamp = rsamp.wrapping_mul(ct); // multiply by 1..=32;
+                let rsamp = rsamp >> 5; // divide by 32
                 let samp = rsamp as i16;
 
                 unsafe {
