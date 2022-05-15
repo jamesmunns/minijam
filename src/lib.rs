@@ -167,12 +167,14 @@ pub struct Note {
 }
 
 
+#[derive(Copy, Clone)]
 #[repr(C)]
 pub struct StereoSample {
     pub left: Sample,
     pub right: Sample,
 }
 
+#[derive(Copy, Clone)]
 #[repr(C)]
 pub union Sample {
     pub bytes: [u8; 2],

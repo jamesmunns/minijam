@@ -1,0 +1,13 @@
+[package]
+name = "mjdemo"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+rand = "0.8.5"
+wav = "1.0.0"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies.minijam]
+path = "../../"
