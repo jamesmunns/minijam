@@ -44,6 +44,41 @@ pub enum Mix {
     Div8,
 }
 
+pub enum OperatorKind {
+    AmplitudeLfo(Tone),
+    FrequencyLfo(Tone),
+    None,
+}
+
+pub struct Operator {
+    pub kind: OperatorKind,
+}
+
+/// Shifts volume between 50%-100%
+#[inline]
+fn volume_shift(samp: i16, vol: i16) -> i16 {
+    let samp = samp as i32;
+    let vol = vol as i32; // i16::MIN..=i16::MAX
+    let vol = vol.wrapping_add((u16::MAX / 2).into()); // 0..=(i16::MAX * 2)
+    let vol = (vol >> 7) + 512; // 512..=1024
+    let samp = samp.wrapping_mul(vol);
+    let samp = samp >> 10;
+    samp as i16
+}
+
+impl Operator {
+    fn operate(&mut self, samp: i16) -> i16 {
+        match &mut self.kind {
+            OperatorKind::AmplitudeLfo(op) => {
+                let ops = op.next_sample();
+                volume_shift(samp, ops)
+            },
+            OperatorKind::FrequencyLfo(_op) => todo!(),
+            OperatorKind::None => samp,
+        }
+    }
+}
+
 // TODO: Add some kind of volume shift for higher frequencies?
 
 impl Mix {
@@ -96,6 +131,11 @@ impl Tone {
     }
 
     #[inline]
+    pub fn next_sample(&mut self) -> i16 {
+        (self.next_sample_func())(self)
+    }
+
+    #[inline]
     fn next_sample_func(&mut self) -> fn(&'_ mut Tone) -> i16
     {
         match self.kind {
@@ -106,7 +146,7 @@ impl Tone {
     }
 
     #[inline]
-    pub fn fill_first_stereo_samples(&mut self, samples: &mut [StereoSample], mix: Mix) {
+    pub fn fill_first_stereo_samples(&mut self, samples: &mut [StereoSample], mix: Mix, operator: &mut Operator) {
         let next_sample = self.next_sample_func();
         let shift = mix.to_shift();
 
@@ -116,7 +156,7 @@ impl Tone {
         // Fade out in 1/8th volume steps over the course of this sample.
         samples.chunks_mut(samples.len() / 32).for_each(|ch| {
             ch.iter_mut().for_each(|s| {
-                let samp = next_sample(self) >> shift;
+                let samp = operator.operate(next_sample(self)) >> shift;
                 let rsamp = samp as i32;
                 let rsamp = rsamp.wrapping_mul(ct); // multiply by 1..=32;
                 let rsamp = rsamp >> 5; // divide by 32
@@ -132,7 +172,7 @@ impl Tone {
     }
 
     #[inline]
-    pub fn fill_last_stereo_samples(&mut self, samples: &mut [StereoSample], mix: Mix) {
+    pub fn fill_last_stereo_samples(&mut self, samples: &mut [StereoSample], mix: Mix, operator: &mut Operator) {
         let next_sample = self.next_sample_func();
         let shift = mix.to_shift();
 
@@ -142,7 +182,7 @@ impl Tone {
         // Fade out in 1/8th volume steps over the course of this sample.
         samples.chunks_mut(samples.len() / 32).for_each(|ch| {
             ch.iter_mut().for_each(|s| {
-                let samp = next_sample(self) >> shift;
+                let samp = operator.operate(next_sample(self)) >> shift;
                 let rsamp = samp as i32;
                 let rsamp = rsamp.wrapping_mul(ct); // multiply by 1..=32;
                 let rsamp = rsamp >> 5; // divide by 32
@@ -158,12 +198,12 @@ impl Tone {
     }
 
     #[inline]
-    pub fn fill_stereo_samples(&mut self, samples: &mut [StereoSample], mix: Mix) {
+    pub fn fill_stereo_samples(&mut self, samples: &mut [StereoSample], mix: Mix, operator: &mut Operator) {
         let next_sample = self.next_sample_func();
         let shift = mix.to_shift();
 
         samples.iter_mut().for_each(|s| {
-            let samp = next_sample(self) >> shift;
+            let samp = operator.operate(next_sample(self)) >> shift;
             unsafe {
                 s.left.word = s.left.word.wrapping_add(samp);
                 s.right.word = s.right.word.wrapping_add(samp);

@@ -4,7 +4,7 @@ use minijam::{
         MAJOR_TRIAD_INTERVALS, MINOR_TRIAD_INTERVALS, NATURAL_MAJOR_INTERVALS,
         NATURAL_MINOR_INTERVALS,
     },
-    tones::ToneKind,
+    tones::{ToneKind, Operator, OperatorKind, Tone},
     Sample, StereoSample, Track,
 };
 // use userspace::common::porcelain::{
@@ -27,6 +27,7 @@ pub struct MetaTrack<const N: usize> {
     chance: u32,
     length: Length,
     notes: u32,
+    operator: Operator,
 }
 
 pub enum Length {
@@ -58,10 +59,12 @@ impl<const N: usize> MetaTrack<N> {
             chance: 0,
             length,
             notes,
+            operator: Operator { kind: OperatorKind::None },
         };
 
         me.gen_voice(rng);
         me.gen_chance(rng);
+        me.gen_operator(rng);
 
         me
     }
@@ -72,6 +75,15 @@ impl<const N: usize> MetaTrack<N> {
             1 => ToneKind::Square,
             _ => ToneKind::Saw,
         };
+    }
+
+    pub fn gen_operator<R: RngCore>(&mut self, rng: &mut R) {
+        let wobble = rng.next_u32() % 64;
+        if wobble < 32 {
+            self.operator = Operator { kind: OperatorKind::AmplitudeLfo(Tone::new_sine(wobble as f32, 44100)) };
+        } else {
+            self.operator = Operator { kind: OperatorKind::None };
+        }
     }
 
     pub fn gen_chance<R: RngCore>(&mut self, rng: &mut R) {
@@ -278,7 +290,7 @@ struct Conductor<R: RngCore, const N: usize, const M: usize> {
 
 impl<R: RngCore, const N: usize, const M: usize> Conductor<R, N, M> {
     pub fn mutate(&mut self) {
-        match self.rng.next_u32() % 13 {
+        match self.rng.next_u32() % 18 {
             0 => {
                 self.lead_1.gen_voice(&mut self.rng);
             }
@@ -343,6 +355,21 @@ impl<R: RngCore, const N: usize, const M: usize> Conductor<R, N, M> {
             11 => {
                 self.chorus
                     .gen_refrain(&mut self.rng, self.chords, self.key);
+            }
+            12 => {
+                self.lead_1.gen_operator(&mut self.rng);
+            }
+            13 => {
+                self.lead_2.gen_operator(&mut self.rng);
+            }
+            14 => {
+                self.chorus.tracks[0].gen_operator(&mut self.rng);
+            }
+            15 => {
+                self.chorus.tracks[1].gen_operator(&mut self.rng);
+            }
+            16 => {
+                self.chorus.tracks[2].gen_operator(&mut self.rng);
             }
             _ => {
                 self.pick_key();
@@ -438,7 +465,7 @@ pub fn main() {
         is_major: true,
     };
 
-    let mut all_samples: Vec<StereoSample> = Vec::with_capacity(44100 * 3600);
+    let mut all_samples: Vec<StereoSample> = Vec::with_capacity(44100 * 180);
 
     conductor.pick_scale();
     conductor.chorus.set_min_chances(0x6000_0000);
@@ -468,25 +495,25 @@ pub fn main() {
             conductor
                 .lead_1
                 .track
-                .fill_stereo_samples(&mut samples, minijam::tones::Mix::Div4);
+                .fill_stereo_samples(&mut samples, minijam::tones::Mix::Div4, &mut conductor.lead_1.operator);
             conductor
                 .lead_2
                 .track
-                .fill_stereo_samples(&mut samples, minijam::tones::Mix::Div4);
+                .fill_stereo_samples(&mut samples, minijam::tones::Mix::Div4, &mut conductor.lead_2.operator);
             conductor.chorus.tracks[0]
                 .track
-                .fill_stereo_samples(&mut samples, minijam::tones::Mix::Div8);
+                .fill_stereo_samples(&mut samples, minijam::tones::Mix::Div8, &mut conductor.chorus.tracks[0].operator);
             conductor.chorus.tracks[1]
                 .track
-                .fill_stereo_samples(&mut samples, minijam::tones::Mix::Div8);
+                .fill_stereo_samples(&mut samples, minijam::tones::Mix::Div8, &mut conductor.chorus.tracks[1].operator);
             conductor.chorus.tracks[2]
                 .track
-                .fill_stereo_samples(&mut samples, minijam::tones::Mix::Div8);
+                .fill_stereo_samples(&mut samples, minijam::tones::Mix::Div8, &mut conductor.chorus.tracks[2].operator);
 
             all_samples.extend_from_slice(&samples);
         }
 
-        if all_samples.len() >= (44100 * 3600) {
+        if all_samples.len() >= (44100 * 180) {
             break;
         }
     }

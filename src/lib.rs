@@ -1,8 +1,7 @@
 #![no_std]
 
 use heapless::Deque;
-use scale::Pitch;
-use tones::{Tone, Mix, ToneKind};
+use tones::{Tone, Mix, ToneKind, Operator};
 
 pub mod tones;
 pub mod scale;
@@ -32,16 +31,16 @@ impl<const DEPTH: usize> Track<DEPTH> {
     }
 
     #[inline]
-    pub fn fill_stereo_samples(&mut self, samples: &mut [StereoSample], mix: Mix) {
+    pub fn fill_stereo_samples(&mut self, samples: &mut [StereoSample], mix: Mix, operator: &mut Operator) {
         let samp_len = samples.len() as u32;
         let need_new = if let Some(mut note) = self.current.take() {
             if note.samp_end < self.cur_samp {
                 true
             } else {
                 if (self.cur_samp + samp_len) > note.samp_end {
-                    note.wave.fill_last_stereo_samples(samples, mix);
+                    note.wave.fill_last_stereo_samples(samples, mix, operator);
                 } else {
-                    note.wave.fill_stereo_samples(samples, mix);
+                    note.wave.fill_stereo_samples(samples, mix, operator);
                     self.current = Some(note);
                 }
                 false
@@ -53,7 +52,7 @@ impl<const DEPTH: usize> Track<DEPTH> {
         if need_new {
             while let Some(mut note) = self.note_q.pop_front() {
                 if note.samp_start < self.cur_samp {
-                    note.wave.fill_first_stereo_samples(samples, mix);
+                    note.wave.fill_first_stereo_samples(samples, mix, operator);
                     self.current = Some(note);
                     break;
                 } else {
