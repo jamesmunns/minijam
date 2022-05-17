@@ -1,11 +1,19 @@
-use minijam::{Track, StereoSample, Sample, scale::{Pitch, Note, NATURAL_MAJOR_INTERVALS, MAJOR_TRIAD_INTERVALS, MINOR_TRIAD_INTERVALS, Semitones, NATURAL_MINOR_INTERVALS, DIMINISHED_TRIAD_INTERVALS, MAJOR_PENTATONIC_INTERVALS}, tones::ToneKind};
+use minijam::{
+    scale::{
+        Note, Pitch, Semitones, DIMINISHED_TRIAD_INTERVALS, MAJOR_PENTATONIC_INTERVALS,
+        MAJOR_TRIAD_INTERVALS, MINOR_TRIAD_INTERVALS, NATURAL_MAJOR_INTERVALS,
+        NATURAL_MINOR_INTERVALS,
+    },
+    tones::ToneKind,
+    Sample, StereoSample, Track,
+};
 // use userspace::common::porcelain::{
 //     pcm_sink as pcm,
 //     time,
 //     system,
 // };
 use rand::{thread_rng, RngCore};
-use wav::{Header, WAV_FORMAT_PCM, BitDepth};
+use wav::{BitDepth, Header, WAV_FORMAT_PCM};
 
 // type MjVec<T, const N: usize> = heapless::Vec<T, N>;
 type MjVec<T, const N: usize> = Vec<T>;
@@ -67,10 +75,7 @@ impl<const N: usize> MetaTrack<N> {
     }
 
     pub fn gen_chance<R: RngCore>(&mut self, rng: &mut R) {
-        self.chance = rng
-            .next_u32()
-            .min(self.max_chance)
-            .max(self.min_chance);
+        self.chance = rng.next_u32().min(self.max_chance).max(self.min_chance);
     }
 
     // Regenerate the note, but keep the same octave and existing pattern
@@ -113,7 +118,13 @@ impl<const N: usize> MetaTrack<N> {
         }
     }
 
-    pub fn fill_track<R: RngCore>(&mut self, rng: &mut R, bpm: u32, scale: &[Semitones], key: Pitch) {
+    pub fn fill_track<R: RngCore>(
+        &mut self,
+        rng: &mut R,
+        bpm: u32,
+        scale: &[Semitones],
+        key: Pitch,
+    ) {
         let full_length = (self.track.sample_rate * 60) / bpm;
         let full_length = self.length.qlen_to_notes(full_length);
         let note_length = (full_length * 9) / 10;
@@ -124,7 +135,9 @@ impl<const N: usize> MetaTrack<N> {
 
         for n in self.refrain.iter() {
             if let Some(note) = n {
-                self.track.add_note(self.voice, *note, cur, cur + note_length).unwrap();
+                self.track
+                    .add_note(self.voice, *note, cur, cur + note_length)
+                    .unwrap();
             }
             cur += full_length;
         }
@@ -147,7 +160,9 @@ impl<const N: usize> MetaTrack<N> {
                 let note = note + offset;
 
                 // TODO: Extend last one? Add a rest?
-                self.track.add_note(self.voice, note, cur, cur + note_length).unwrap();
+                self.track
+                    .add_note(self.voice, note, cur, cur + note_length)
+                    .unwrap();
             }
             cur += full_length;
         }
@@ -165,11 +180,15 @@ struct MetaChorus<const N: usize, const M: usize> {
 
 impl<const N: usize, const M: usize> MetaChorus<N, M> {
     pub fn set_min_chances(&mut self, min_chance: u32) {
-        self.tracks.iter_mut().for_each(|t| t.min_chance = min_chance);
+        self.tracks
+            .iter_mut()
+            .for_each(|t| t.min_chance = min_chance);
     }
 
     pub fn set_max_chances(&mut self, max_chance: u32) {
-        self.tracks.iter_mut().for_each(|t| t.max_chance = max_chance);
+        self.tracks
+            .iter_mut()
+            .for_each(|t| t.max_chance = max_chance);
     }
 
     pub fn fill_tracks(&mut self, bpm: u32) {
@@ -181,14 +200,21 @@ impl<const N: usize, const M: usize> MetaChorus<N, M> {
 
             for n in t.refrain.iter() {
                 if let Some(note) = n {
-                    t.track.add_note(t.voice, *note, cur, cur + note_length).unwrap();
+                    t.track
+                        .add_note(t.voice, *note, cur, cur + note_length)
+                        .unwrap();
                 }
                 cur += full_length;
             }
         })
     }
 
-    pub fn gen_refrain<R: RngCore>(&mut self, rng: &mut R, chords: &[(Semitones, &[Semitones])], key: Pitch) {
+    pub fn gen_refrain<R: RngCore>(
+        &mut self,
+        rng: &mut R,
+        chords: &[(Semitones, &[Semitones])],
+        key: Pitch,
+    ) {
         let ch_note = Note {
             pitch: key,
             octave: 3,
@@ -260,7 +286,10 @@ impl<R: RngCore, const N: usize, const M: usize> Conductor<R, N, M> {
                 self.lead_2.gen_voice(&mut self.rng);
             }
             2 => {
-                self.chorus.tracks.iter_mut().for_each(|t| t.gen_voice(&mut self.rng));
+                self.chorus
+                    .tracks
+                    .iter_mut()
+                    .for_each(|t| t.gen_voice(&mut self.rng));
             }
             3 => {
                 self.pick_scale();
@@ -272,7 +301,10 @@ impl<R: RngCore, const N: usize, const M: usize> Conductor<R, N, M> {
                 self.lead_2.gen_chance(&mut self.rng);
             }
             6 => {
-                self.chorus.tracks.iter_mut().for_each(|t| t.gen_chance(&mut self.rng));
+                self.chorus
+                    .tracks
+                    .iter_mut()
+                    .for_each(|t| t.gen_chance(&mut self.rng));
             }
             7 => {
                 self.bpm = 120 + self.rng.next_u32() % 64;
@@ -293,10 +325,13 @@ impl<R: RngCore, const N: usize, const M: usize> Conductor<R, N, M> {
                 // rather than regenerate everything
                 if old_major != self.is_major {
                     self.pick_scale();
-                    self.lead_1.remap_refrain(&mut self.rng, self.scale, self.key);
-                    self.lead_2.remap_refrain(&mut self.rng, self.scale, self.key);
+                    self.lead_1
+                        .remap_refrain(&mut self.rng, self.scale, self.key);
+                    self.lead_2
+                        .remap_refrain(&mut self.rng, self.scale, self.key);
                     // TODO: remap_refrain?
-                    self.chorus.gen_refrain(&mut self.rng, self.chords, self.key);
+                    self.chorus
+                        .gen_refrain(&mut self.rng, self.chords, self.key);
                 }
             }
             9 => {
@@ -306,14 +341,18 @@ impl<R: RngCore, const N: usize, const M: usize> Conductor<R, N, M> {
                 self.gen_lead_2_refrain();
             }
             11 => {
-                self.chorus.gen_refrain(&mut self.rng, self.chords, self.key);
+                self.chorus
+                    .gen_refrain(&mut self.rng, self.chords, self.key);
             }
             _ => {
                 self.pick_key();
-                self.lead_1.remap_refrain(&mut self.rng, self.scale, self.key);
-                self.lead_2.remap_refrain(&mut self.rng, self.scale, self.key);
+                self.lead_1
+                    .remap_refrain(&mut self.rng, self.scale, self.key);
+                self.lead_2
+                    .remap_refrain(&mut self.rng, self.scale, self.key);
                 // TODO: remap_refrain?
-                self.chorus.gen_refrain(&mut self.rng, self.chords, self.key);
+                self.chorus
+                    .gen_refrain(&mut self.rng, self.chords, self.key);
             }
         }
     }
@@ -327,7 +366,8 @@ impl<R: RngCore, const N: usize, const M: usize> Conductor<R, N, M> {
     }
 
     pub fn gen_chorus_refrain(&mut self) {
-        self.chorus.gen_refrain(&mut self.rng, self.chords, self.key);
+        self.chorus
+            .gen_refrain(&mut self.rng, self.chords, self.key);
     }
 
     pub fn pick_scale(&mut self) {
@@ -363,15 +403,17 @@ impl<R: RngCore, const N: usize, const M: usize> Conductor<R, N, M> {
     }
 
     pub fn fill_tracks(&mut self) {
-        self.lead_1.fill_track(&mut self.rng, self.bpm, self.scale, self.key);
-        self.lead_2.fill_track(&mut self.rng, self.bpm, self.scale, self.key);
+        self.lead_1
+            .fill_track(&mut self.rng, self.bpm, self.scale, self.key);
+        self.lead_2
+            .fill_track(&mut self.rng, self.bpm, self.scale, self.key);
         self.chorus.fill_tracks(self.bpm);
     }
 
     pub fn is_done(&self) -> bool {
-        self.lead_1.track.is_done() &&
-        self.lead_2.track.is_done() &&
-        self.chorus.tracks.iter().all(|t| t.track.is_done())
+        self.lead_1.track.is_done()
+            && self.lead_2.track.is_done()
+            && self.chorus.tracks.iter().all(|t| t.track.is_done())
     }
 }
 
@@ -381,11 +423,13 @@ pub fn main() {
     let mut conductor: Conductor<_, 128, 3> = Conductor {
         lead_1: MetaTrack::new(44100, Length::Quarter, 32, &mut rng),
         lead_2: MetaTrack::new(44100, Length::Eighth, 64, &mut rng),
-        chorus: MetaChorus { tracks: [
-            MetaTrack::new(44100, Length::Whole, 8, &mut rng),
-            MetaTrack::new(44100, Length::Whole, 8, &mut rng),
-            MetaTrack::new(44100, Length::Whole, 8, &mut rng),
-        ]},
+        chorus: MetaChorus {
+            tracks: [
+                MetaTrack::new(44100, Length::Whole, 8, &mut rng),
+                MetaTrack::new(44100, Length::Whole, 8, &mut rng),
+                MetaTrack::new(44100, Length::Whole, 8, &mut rng),
+            ],
+        },
         rng,
         key: Pitch::C,
         bpm: 120,
@@ -405,7 +449,6 @@ pub fn main() {
     conductor.gen_lead_2_refrain();
     conductor.gen_chorus_refrain();
 
-
     loop {
         conductor.clear();
         conductor.mutate();
@@ -414,13 +457,31 @@ pub fn main() {
 
         while !conductor.is_done() {
             let empty_samp = Sample { word: 0 };
-            let mut samples = vec![StereoSample { left: empty_samp, right: empty_samp }; 512];
+            let mut samples = vec![
+                StereoSample {
+                    left: empty_samp,
+                    right: empty_samp
+                };
+                512
+            ];
 
-            conductor.lead_1.track.fill_stereo_samples(&mut samples, minijam::tones::Mix::Div4);
-            conductor.lead_2.track.fill_stereo_samples(&mut samples, minijam::tones::Mix::Div4);
-            conductor.chorus.tracks[0].track.fill_stereo_samples(&mut samples, minijam::tones::Mix::Div8);
-            conductor.chorus.tracks[1].track.fill_stereo_samples(&mut samples, minijam::tones::Mix::Div8);
-            conductor.chorus.tracks[2].track.fill_stereo_samples(&mut samples, minijam::tones::Mix::Div8);
+            conductor
+                .lead_1
+                .track
+                .fill_stereo_samples(&mut samples, minijam::tones::Mix::Div4);
+            conductor
+                .lead_2
+                .track
+                .fill_stereo_samples(&mut samples, minijam::tones::Mix::Div4);
+            conductor.chorus.tracks[0]
+                .track
+                .fill_stereo_samples(&mut samples, minijam::tones::Mix::Div8);
+            conductor.chorus.tracks[1]
+                .track
+                .fill_stereo_samples(&mut samples, minijam::tones::Mix::Div8);
+            conductor.chorus.tracks[2]
+                .track
+                .fill_stereo_samples(&mut samples, minijam::tones::Mix::Div8);
 
             all_samples.extend_from_slice(&samples);
         }
@@ -433,12 +494,7 @@ pub fn main() {
     use std::fs::File;
     use std::path::Path;
 
-    let header = Header::new(
-        WAV_FORMAT_PCM,
-        2,
-        44100,
-        16
-    );
+    let header = Header::new(WAV_FORMAT_PCM, 2, 44100, 16);
 
     let mut new_data: Vec<i16> = Vec::new();
     for samp in all_samples.iter() {
@@ -473,8 +529,6 @@ fn fill_chord2<R: RngCore, const N: usize>(
         }
     }
 }
-
-
 
 const MAJOR_SCALES: &[&[Semitones]] = &[
     minijam::scale::IONIAN_INTERVALS,
@@ -521,8 +575,8 @@ const MAJOR_CHORDS: &[(Semitones, &[Semitones])] = &[
 const MINOR_CHORDS: &[(Semitones, &[Semitones])] = &[
     (NATURAL_MINOR_INTERVALS[0], MINOR_TRIAD_INTERVALS), // I
     (NATURAL_MINOR_INTERVALS[1], DIMINISHED_TRIAD_INTERVALS), // II
-    (NATURAL_MINOR_INTERVALS[2], MINOR_TRIAD_INTERVALS),      // III
+    (NATURAL_MINOR_INTERVALS[2], MINOR_TRIAD_INTERVALS), // III
     (NATURAL_MINOR_INTERVALS[3], MINOR_TRIAD_INTERVALS), // IV
     (NATURAL_MINOR_INTERVALS[4], MAJOR_TRIAD_INTERVALS), // V
-    (NATURAL_MINOR_INTERVALS[5], MINOR_TRIAD_INTERVALS),      // VI
+    (NATURAL_MINOR_INTERVALS[5], MINOR_TRIAD_INTERVALS), // VI
 ];
