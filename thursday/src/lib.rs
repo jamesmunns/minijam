@@ -23,8 +23,9 @@ pub enum EncError {
     EndOfStream,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 struct EncPitch {
+    // NOTE: Valid Range 0..=0x7F
     tone: u8,
     offset: u8,
 }
@@ -47,8 +48,20 @@ impl From<KCInt> for EncPitch {
     }
 }
 
-#[derive(Debug)]
+impl From<EncPitch> for KCInt {
+    fn from(value: EncPitch) -> Self {
+        debug_assert!(value.tone < 0x80, "Invalid Tone Value");
+        if value.offset == 0 {
+            KCInt::Short(value.tone)
+        } else {
+            KCInt::Long { upper: value.offset, lower: value.tone | 0x80 }
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
 struct EncStart {
+    // NOTE: Valid Range 0..PPQN_MAX
     ppqn_idx: u16,
 }
 
@@ -79,8 +92,27 @@ impl TryFrom<KCInt> for EncStart {
     }
 }
 
-#[derive(Debug)]
+impl From<EncStart> for KCInt {
+    fn from(value: EncStart) -> Self {
+        debug_assert!(value.ppqn_idx < PPQN_MAX);
+
+        let div = value.ppqn_idx / PPQN_EIGHTH;
+        let rem = value.ppqn_idx % PPQN_EIGHTH;
+
+        if rem == 0 {
+            KCInt::Short(div as u8)
+        } else {
+            KCInt::Long {
+                upper: (value.ppqn_idx >> 7) as u8,
+                lower: (value.ppqn_idx as u8) | 0x80,
+            }
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
 struct EncLength {
+    // NOTE: Valid Range 0..=PPQN_MAX
     ppqn_ct: u16,
 }
 
@@ -131,6 +163,42 @@ impl TryFrom<KCInt> for EncLength {
     }
 }
 
+impl From<EncLength> for KCInt {
+    fn from(value: EncLength) -> Self {
+
+        debug_assert!(value.ppqn_ct != 0);
+        debug_assert!(value.ppqn_ct <= PPQN_MAX);
+
+        match value.ppqn_ct {
+            PPQN_32ND_TRIPLET => KCInt::Short(0x00),
+            PPQN_16TH_TRIPLET => KCInt::Short(0x01),
+            PPQN_EIGHTH_TRIPLET => KCInt::Short(0x02),
+            PPQN_QUARTER_TRIPLET => KCInt::Short(0x03),
+            PPQN_HALF_TRIPLET => KCInt::Short(0x04),
+            PPQN_64TH => KCInt::Short(0x05),
+            PPQN_32ND => KCInt::Short(0x06),
+            PPQN_16TH => KCInt::Short(0x07),
+            PPQN_EIGHTH => KCInt::Short(0x08),
+            _ => {
+                let div = value.ppqn_ct / PPQN_QUARTER;
+                let rem = value.ppqn_ct % PPQN_QUARTER;
+
+                if rem == 0 {
+                    KCInt::Short(0x3F + (div as u8))
+                } else {
+                    KCInt::Long {
+                        upper: (value.ppqn_ct >> 7) as u8,
+                        lower: (value.ppqn_ct as u8) | 0x80,
+                    }
+                }
+            }
+        }
+
+
+
+    }
+}
+
 pub struct EncNote {
     pitch: EncPitch,
     start: EncStart,
@@ -153,8 +221,13 @@ impl EncNote {
     }
 }
 
+#[derive(Debug, PartialEq, Eq)]
 enum KCInt {
-    Long { upper: u8, lower: u8 },
+    Long {
+        upper: u8,
+        // NOTE: DOES contain flag bit, values not adjusted
+        lower: u8,
+    },
     Short(u8),
 }
 
@@ -170,6 +243,24 @@ impl KCInt {
             Some((KCInt::Short(lower), remain))
         }
     }
+
+    pub fn write_to_slice<'a>(&self, sli: &'a mut [u8]) -> Result<&'a mut [u8], EncError> {
+        match self {
+            KCInt::Long { upper, lower } => {
+                if sli.len() < 2 {
+                    return Err(EncError::EndOfStream);
+                }
+                let (dest, rem) = sli.split_at_mut(2);
+                dest.copy_from_slice(&[*lower, *upper]);
+                Ok(rem)
+            },
+            KCInt::Short(lower) => {
+                let (dest, rem) = sli.split_first_mut().ok_or(EncError::EndOfStream)?;
+                *dest = *lower;
+                Ok(rem)
+            },
+        }
+    }
 }
 
 #[cfg(test)]
@@ -177,7 +268,111 @@ mod test {
     use super::*;
 
     #[test]
-    fn smoke_short() {
+    fn pitch_rt_exhaustive() {
+        for tone in 0x00..=0x7F {
+            for offset in 0x00..=0xFF {
+                let pitch = EncPitch { tone, offset };
+                let mut buf = [0xFFu8; 2];
+                let kcpitch: KCInt = pitch.clone().into();
+                let remain = kcpitch.write_to_slice(&mut buf).unwrap();
+                let enc_remain_len = remain.len();
+
+                let (dec_kc, remain) = KCInt::take_from_slice(&buf).unwrap();
+                let dec_remain_len = remain.len();
+                let dec_pitch: EncPitch = dec_kc.into();
+                assert_eq!(pitch, dec_pitch);
+                assert_eq!(enc_remain_len, dec_remain_len);
+            }
+        }
+    }
+
+    #[test]
+    fn start_rt_exhaustive() {
+        for start_idx in 0x0000..PPQN_MAX {
+            let start = EncStart { ppqn_idx: start_idx };
+            let mut buf = [0xFFu8; 2];
+            let kcstart: KCInt = start.clone().into();
+            let remain = kcstart.write_to_slice(&mut buf).unwrap();
+            let enc_remain_len = remain.len();
+
+            let (dec_kc, remain) = KCInt::take_from_slice(&buf).unwrap();
+            let dec_remain_len = remain.len();
+            let dec_start: EncStart = dec_kc.try_into().unwrap();
+            assert_eq!(start, dec_start);
+            assert_eq!(enc_remain_len, dec_remain_len);
+        }
+    }
+
+    #[test]
+    fn length_rt_exhaustive() {
+        for length_ct in 0x0001..=PPQN_MAX {
+            let length = EncLength { ppqn_ct: length_ct };
+            let mut buf = [0xFFu8; 2];
+            let kclength: KCInt = length.clone().into();
+            let remain = kclength.write_to_slice(&mut buf).unwrap();
+            let enc_remain_len = remain.len();
+
+            let (dec_kc, remain) = KCInt::take_from_slice(&buf).unwrap();
+            let dec_remain_len = remain.len();
+            let dec_length: EncLength = dec_kc.try_into().unwrap();
+            assert_eq!(length, dec_length);
+            assert_eq!(enc_remain_len, dec_remain_len);
+        }
+    }
+
+    #[test]
+    fn kcint_rt_exhaustive_short() {
+        for i in 0..=127 {
+            // decode
+            let vals = [i];
+            let (short_dec, remain) = KCInt::take_from_slice(&vals).unwrap();
+            assert_eq!(short_dec, KCInt::Short(i));
+            assert!(remain.is_empty());
+
+            // encode
+            let mut dest = [0xFFu8; 1];
+            let remain = short_dec.write_to_slice(&mut dest).unwrap();
+            assert!(remain.is_empty());
+            assert_eq!(&dest, &vals);
+        }
+    }
+
+    #[test]
+    fn kcint_rt_exhaustive_long() {
+        for lower in 0x80..=0xFF {
+            for upper in 0x00..=0xFF {
+                let vals = [lower, upper];
+                let (long_dec, remain) = KCInt::take_from_slice(&vals).unwrap();
+                assert_eq!(long_dec, KCInt::Long { lower, upper });
+                assert!(remain.is_empty());
+
+                // encode
+                let mut dest = [0xFFu8; 2];
+                let remain = long_dec.write_to_slice(&mut dest).unwrap();
+                assert!(remain.is_empty());
+                assert_eq!(&dest, &vals);
+            }
+        }
+    }
+
+    #[test]
+    fn kcint_early_fail() {
+        for lower in 0x80..=0xFF {
+            let vals = [lower];
+            let result = KCInt::take_from_slice(&vals);
+            assert_eq!(result, None);
+
+            // encode
+            for upper in 0x00..=0xFF {
+                let mut dest = [0xFFu8; 1];
+                let result = KCInt::Long { upper, lower }.write_to_slice(&mut dest);
+                assert_eq!(result, Err(EncError::EndOfStream));
+            }
+        }
+    }
+
+    #[test]
+    fn smoke_dec_short() {
         let vals = [
             0x3C, // C4
             0x08, // Bar 2, beat 1
@@ -196,7 +391,7 @@ mod test {
     }
 
     #[test]
-    fn smoke_long() {
+    fn smoke_dec_long() {
         let vals = [
             0xBC, 0xC0, // C4 + 75%
             0xC0, 0x01, // Bar 1, beat 2
