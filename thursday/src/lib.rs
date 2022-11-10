@@ -219,6 +219,17 @@ impl EncNote {
             sli,
         ))
     }
+
+    pub fn write_to_slice<'a>(&self, sli: &'a mut [u8]) -> Result<&'a mut [u8], EncError> {
+        let outs: [KCInt; 3] = [
+            self.pitch.clone().into(),
+            self.start.clone().into(),
+            self.length.clone().into(),
+        ];
+        outs.into_iter().try_fold(sli, |sli, out| {
+            out.write_to_slice(sli)
+        })
+    }
 }
 
 #[derive(Debug, PartialEq, Eq)]
@@ -266,6 +277,8 @@ impl KCInt {
 #[cfg(test)]
 mod test {
     use super::*;
+
+
 
     #[test]
     fn pitch_rt_exhaustive() {
@@ -369,6 +382,38 @@ mod test {
                 assert_eq!(result, Err(EncError::EndOfStream));
             }
         }
+    }
+
+    #[test]
+    fn smoke_full_rt_short() {
+        let vals = [
+            0x3C, // C4
+            0x08, // Bar 2, beat 1
+            0x41, // half note
+        ];
+        let (note, remain) = EncNote::take_from_slice(&vals).unwrap();
+        assert!(remain.is_empty());
+
+        let mut out = [0xFF; 3];
+        let remain = note.write_to_slice(&mut out).unwrap();
+        assert!(remain.is_empty());
+        assert_eq!(vals, out);
+    }
+
+    #[test]
+    fn smoke_full_rt_long() {
+        let vals = [
+            0xBC, 0xC0, // C4 + 75%
+            0xC0, 0x02, // Bar 1, beat 2 + 1/64
+            0xA0, 0x02, // quarter + eighth
+        ];
+        let (note, remain) = EncNote::take_from_slice(&vals).unwrap();
+        assert!(remain.is_empty());
+
+        let mut out = [0xFF; 6];
+        let remain = note.write_to_slice(&mut out).unwrap();
+        assert!(remain.is_empty());
+        assert_eq!(vals, out);
     }
 
     #[test]
