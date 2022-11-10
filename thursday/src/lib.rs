@@ -54,7 +54,10 @@ impl From<EncPitch> for KCInt {
         if value.offset == 0 {
             KCInt::Short(value.tone)
         } else {
-            KCInt::Long { upper: value.offset, lower: value.tone | 0x80 }
+            KCInt::Long {
+                upper: value.offset,
+                lower: value.tone | 0x80,
+            }
         }
     }
 }
@@ -165,7 +168,6 @@ impl TryFrom<KCInt> for EncLength {
 
 impl From<EncLength> for KCInt {
     fn from(value: EncLength) -> Self {
-
         debug_assert!(value.ppqn_ct != 0);
         debug_assert!(value.ppqn_ct <= PPQN_MAX);
 
@@ -193,9 +195,6 @@ impl From<EncLength> for KCInt {
                 }
             }
         }
-
-
-
     }
 }
 
@@ -226,9 +225,8 @@ impl EncNote {
             self.start.clone().into(),
             self.length.clone().into(),
         ];
-        outs.into_iter().try_fold(sli, |sli, out| {
-            out.write_to_slice(sli)
-        })
+        outs.into_iter()
+            .try_fold(sli, |sli, out| out.write_to_slice(sli))
     }
 }
 
@@ -264,12 +262,12 @@ impl KCInt {
                 let (dest, rem) = sli.split_at_mut(2);
                 dest.copy_from_slice(&[*lower, *upper]);
                 Ok(rem)
-            },
+            }
             KCInt::Short(lower) => {
                 let (dest, rem) = sli.split_first_mut().ok_or(EncError::EndOfStream)?;
                 *dest = *lower;
                 Ok(rem)
-            },
+            }
         }
     }
 }
@@ -277,8 +275,6 @@ impl KCInt {
 #[cfg(test)]
 mod test {
     use super::*;
-
-
 
     #[test]
     fn pitch_rt_exhaustive() {
@@ -302,7 +298,9 @@ mod test {
     #[test]
     fn start_rt_exhaustive() {
         for start_idx in 0x0000..PPQN_MAX {
-            let start = EncStart { ppqn_idx: start_idx };
+            let start = EncStart {
+                ppqn_idx: start_idx,
+            };
             let mut buf = [0xFFu8; 2];
             let kcstart: KCInt = start.clone().into();
             let remain = kcstart.write_to_slice(&mut buf).unwrap();
