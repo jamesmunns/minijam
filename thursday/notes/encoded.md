@@ -65,7 +65,7 @@ This means that `0x00` maps to bar one, eighth note one. `0x7F` maps to bar 16, 
 
 ### 15-bit mode
 
-In 15 bit mode, I again steal a page from MIDI and other audio equipment, and use the concep of [Pulses Per Quarter Note](https://en.wikipedia.org/wiki/Pulses_per_quarter_note). This is basically an integer divider for the "resolution" available within a single quarter note.
+In 15 bit mode, I again steal a page from MIDI and other audio equipment, and use the concept of [Pulses Per Quarter Note](https://en.wikipedia.org/wiki/Pulses_per_quarter_note). This is basically an integer divider for the "resolution" available within a single quarter note.
 
 I plan to use 192 PPQN, which means I can accurately reproduce 64th note offsets as well as 32nd note triplet offsets. That's good enough for me.
 

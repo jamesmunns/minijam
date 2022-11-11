@@ -1,6 +1,10 @@
 // I want to be able to store (and later generate)
 // musical notes in a bar (or multiple bars).
 
+use minijam::scale::Pitch;
+
+pub mod bars;
+
 pub const PPQN: u16 = 192;
 pub const PPQN_WHOLE: u16 = PPQN * 4;
 pub const PPQN_HALF: u16 = PPQN_WHOLE / 2;
@@ -9,13 +13,54 @@ pub const PPQN_EIGHTH: u16 = PPQN_WHOLE / 8;
 pub const PPQN_16TH: u16 = PPQN_WHOLE / 16;
 pub const PPQN_32ND: u16 = PPQN_WHOLE / 32;
 pub const PPQN_64TH: u16 = PPQN_WHOLE / 64;
-pub const PPQN_32ND_TRIPLET: u16 = (PPQN_16TH * 2) / 3;
-pub const PPQN_16TH_TRIPLET: u16 = (PPQN_EIGHTH * 2) / 3;
-pub const PPQN_EIGHTH_TRIPLET: u16 = (PPQN_QUARTER * 2) / 3;
-pub const PPQN_QUARTER_TRIPLET: u16 = (PPQN_HALF * 2) / 3;
-pub const PPQN_HALF_TRIPLET: u16 = (PPQN_WHOLE * 2) / 3;
+pub const PPQN_32ND_TRIPLET: u16 = (PPQN_32ND * 2) / 3;
+pub const PPQN_16TH_TRIPLET: u16 = (PPQN_16TH * 2) / 3;
+pub const PPQN_EIGHTH_TRIPLET: u16 = (PPQN_EIGHTH * 2) / 3;
+pub const PPQN_QUARTER_TRIPLET: u16 = (PPQN_QUARTER * 2) / 3;
+pub const PPQN_HALF_TRIPLET: u16 = (PPQN_HALF * 2) / 3;
 pub const QN_BEATS_MAX: u16 = 64;
+pub const EIGHTH_BEATS_MAX: u8 = 128;
 pub const PPQN_MAX: u16 = QN_BEATS_MAX * PPQN_QUARTER;
+
+#[derive(Clone, Copy, Debug)]
+pub enum Length {
+    TripletThirtySeconds,
+    TripletSixteenth,
+    TripletEighth,
+    TripletQuarter,
+    TripletHalf,
+    SixtyFourth,
+    ThirtySecond,
+    Sixteenth,
+    Eighth,
+    Quarter,
+    Half,
+    Whole,
+    QuarterCount(u8),
+    PPQNCount(u16),
+}
+
+impl Length {
+    pub fn to_ppqn(&self) -> u16 {
+        match self {
+            Length::TripletThirtySeconds => PPQN_32ND_TRIPLET,
+            Length::TripletSixteenth => PPQN_16TH_TRIPLET,
+            Length::TripletEighth => PPQN_EIGHTH_TRIPLET,
+            Length::TripletQuarter => PPQN_QUARTER_TRIPLET,
+            Length::TripletHalf => PPQN_HALF_TRIPLET,
+            Length::SixtyFourth => PPQN_64TH,
+            Length::ThirtySecond => PPQN_32ND,
+            Length::Sixteenth => PPQN_16TH,
+            Length::Eighth => PPQN_EIGHTH,
+            Length::Quarter => PPQN_QUARTER,
+            Length::Half => 2 * PPQN_QUARTER,
+            Length::Whole => 4 * PPQN_QUARTER,
+            // Todo: error checking on these?
+            Length::QuarterCount(n) => (*n as u16) * PPQN_QUARTER,
+            Length::PPQNCount(n) => *n,
+        }
+    }
+}
 
 #[derive(Debug, PartialEq)]
 pub enum EncError {
@@ -205,6 +250,30 @@ pub struct EncNote {
 }
 
 impl EncNote {
+    pub fn new_simple(pitch: Pitch, octave: u8, start_ppqn: u16, length: Length) -> Result<Self, EncError> {
+        let pitch: u8 = pitch.into();
+
+        let pitch = match octave {
+            0..=9 => (octave * 12) + pitch,
+            10 if pitch <= 7 => (octave * 12) + pitch,
+            _ => {
+                return Err(EncError::ValueOutOfBounds);
+            }
+        };
+
+        if start_ppqn >= PPQN_MAX {
+            return Err(EncError::ValueOutOfBounds);
+        }
+
+        let ppqn_len = length.to_ppqn();
+
+        Ok(EncNote {
+            pitch: EncPitch { tone: pitch, offset: 0 },
+            start: EncStart { ppqn_idx: start_ppqn },
+            length: EncLength { ppqn_ct: ppqn_len },
+        })
+    }
+
     pub fn take_from_slice(sli: &[u8]) -> Result<(Self, &[u8]), EncError> {
         let (pitch, sli) = KCInt::take_from_slice(sli).ok_or(EncError::EndOfStream)?;
         let (start, sli) = KCInt::take_from_slice(sli).ok_or(EncError::EndOfStream)?;
@@ -227,6 +296,10 @@ impl EncNote {
         ];
         outs.into_iter()
             .try_fold(sli, |sli, out| out.write_to_slice(sli))
+    }
+
+    pub fn ppqn_len(&self) -> u16 {
+        self.length.ppqn_ct
     }
 }
 
