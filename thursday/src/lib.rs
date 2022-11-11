@@ -90,7 +90,10 @@ impl EncPitch {
             }
         };
 
-        Ok(EncPitch { tone: pitch, offset: 0 })
+        Ok(EncPitch {
+            tone: pitch,
+            offset: 0,
+        })
     }
 
     pub fn frequency(&self) -> f32 {
@@ -287,7 +290,12 @@ pub struct EncNote {
 }
 
 impl EncNote {
-    pub fn new_simple(pitch: Pitch, octave: u8, start_ppqn: u16, length: Length) -> Result<Self, EncError> {
+    pub fn new_simple(
+        pitch: Pitch,
+        octave: u8,
+        start_ppqn: u16,
+        length: Length,
+    ) -> Result<Self, EncError> {
         let pitch = EncPitch::from_pitch_octave(pitch, octave)?;
 
         if start_ppqn >= PPQN_MAX {
@@ -298,7 +306,9 @@ impl EncNote {
 
         Ok(EncNote {
             pitch,
-            start: EncStart { ppqn_idx: start_ppqn },
+            start: EncStart {
+                ppqn_idx: start_ppqn,
+            },
             length: EncLength { ppqn_ct: ppqn_len },
         })
     }

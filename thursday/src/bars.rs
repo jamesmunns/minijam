@@ -1,6 +1,6 @@
 use minijam::scale::Pitch;
 
-use crate::{EncError, Length, EncNote, PPQN_MAX, MAX_ENCODING_SIZE};
+use crate::{EncError, EncNote, Length, MAX_ENCODING_SIZE, PPQN_MAX};
 
 #[derive(Clone)]
 pub struct BarBuf {
@@ -95,11 +95,18 @@ impl BarBuf {
         I: IntoIterator<Item = &'a (Length, Pitch, u8)>,
     {
         let mut bbuf = BarBuf::new();
-        into_iter.into_iter().try_for_each(|(l, p, o)| bbuf.push_note_simple(*l, *p, *o))?;
+        into_iter
+            .into_iter()
+            .try_for_each(|(l, p, o)| bbuf.push_note_simple(*l, *p, *o))?;
         Ok(bbuf)
     }
 
-    pub fn push_note_simple(&mut self, length: Length, pitch: Pitch, octave: u8) -> Result<(), BarError> {
+    pub fn push_note_simple(
+        &mut self,
+        length: Length,
+        pitch: Pitch,
+        octave: u8,
+    ) -> Result<(), BarError> {
         self.check_full()?;
 
         // Encode the note to a temp buffer, returning if the encoding failed
@@ -128,7 +135,7 @@ impl BarBuf {
 
 #[cfg(test)]
 mod test {
-    use crate::{PPQN_QUARTER, EncPitch};
+    use crate::{EncPitch, PPQN_QUARTER};
 
     use super::*;
 
@@ -187,7 +194,8 @@ mod test {
 
         let mut bbuf = BarBuf::new();
         for (i, note) in notes.iter().enumerate() {
-            bbuf.push_note_simple(Length::Quarter, *note, (i as u8) % 4).unwrap();
+            bbuf.push_note_simple(Length::Quarter, *note, (i as u8) % 4)
+                .unwrap();
         }
 
         let out = bbuf.notes().collect::<Vec<EncNote>>();
@@ -196,7 +204,10 @@ mod test {
         for (i, (act_note, exp_note)) in out.iter().zip(notes.iter()).enumerate() {
             let exp_pitch = EncPitch::from_pitch_octave(*exp_note, (i as u8) % 4).unwrap();
             assert_eq!(act_note.pitch, exp_pitch);
-            assert_eq!(act_note.start.ppqn_idx, (i as u16) * Length::Quarter.to_ppqn());
+            assert_eq!(
+                act_note.start.ppqn_idx,
+                (i as u16) * Length::Quarter.to_ppqn()
+            );
             assert_eq!(act_note.length.ppqn_ct, Length::Quarter.to_ppqn());
         }
     }
