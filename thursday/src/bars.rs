@@ -2,7 +2,7 @@ use minijam::scale::Pitch;
 
 use crate::{EncError, Length, EncNote, PPQN_MAX, MAX_ENCODING_SIZE};
 
-
+#[derive(Clone)]
 pub struct BarBuf {
     ppqn_idx: u16,
     notes: usize,
@@ -15,12 +15,31 @@ impl From<EncError> for BarError {
     }
 }
 
+pub struct Notes<'a> {
+    notes: usize,
+    buf: &'a [u8],
+}
+
+impl<'a> Iterator for Notes<'a> {
+    type Item = EncNote;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        let (note, rem) = EncNote::take_from_slice(self.buf).ok()?;
+        self.buf = rem;
+        self.notes = self.notes.saturating_sub(1);
+        Some(note)
+    }
+
+    fn size_hint(&self) -> (usize, Option<usize>) {
+        (self.notes, Some(self.notes))
+    }
+}
+
 #[derive(Debug, PartialEq, Eq)]
 pub enum BarError {
     BarFull,
     ExceededBarLength,
     EncodingErr(EncError),
-    NotSimpleEnough,
 }
 
 impl BarBuf {
@@ -42,6 +61,10 @@ impl BarBuf {
         }
     }
 
+    pub fn bytes(&self) -> &[u8] {
+        &self.buf
+    }
+
     // Increment the "start" ppqn index.
     //
     // Note: Will NOT return `BarError::BarFull` if already totally full,
@@ -61,9 +84,19 @@ impl BarBuf {
         Ok(())
     }
 
+    // Push a rest of a given length to the buffer
     pub fn push_rest_simple(&mut self, length: Length) -> Result<(), BarError> {
         self.check_full()?;
         self.increment_ppqn(length)
+    }
+
+    pub fn from_notes_simple<'a, I>(into_iter: I) -> Result<Self, BarError>
+    where
+        I: IntoIterator<Item = &'a (Length, Pitch, u8)>,
+    {
+        let mut bbuf = BarBuf::new();
+        into_iter.into_iter().try_for_each(|(l, p, o)| bbuf.push_note_simple(*l, *p, *o))?;
+        Ok(bbuf)
     }
 
     pub fn push_note_simple(&mut self, length: Length, pitch: Pitch, octave: u8) -> Result<(), BarError> {
@@ -84,13 +117,102 @@ impl BarBuf {
 
         Ok(())
     }
+
+    pub fn notes<'a>(&'a self) -> Notes<'a> {
+        Notes {
+            notes: self.notes,
+            buf: &self.buf,
+        }
+    }
 }
 
 #[cfg(test)]
 mod test {
-    use crate::PPQN_QUARTER;
+    use crate::{PPQN_QUARTER, EncPitch};
 
     use super::*;
+
+    // TODO: move this to a doc comment
+    #[test]
+    fn showcase() {
+        // Length, Pitch, Octave
+        let notes = [
+            (Length::Quarter, Pitch::F, 3),
+            (Length::Eighth, Pitch::A, 4),
+            (Length::Eighth, Pitch::C, 4),
+            (Length::TripletQuarter, Pitch::A, 3),
+            (Length::TripletQuarter, Pitch::D, 4),
+            (Length::TripletQuarter, Pitch::E, 5),
+        ];
+
+        let bbuf = BarBuf::from_notes_simple(&notes).unwrap();
+        println!("len: {}", bbuf.bytes().len());
+        println!("[");
+        bbuf.bytes().chunks(4).for_each(|ch| {
+            print!("  ");
+            ch.iter().for_each(|b| print!("0x{:02X}, ", b));
+            println!();
+        });
+        println!("]\n");
+
+        println!(" start | len  |  freq");
+        println!(" ppqn  | ppqn |   Hz");
+        println!("-------|------|--------");
+        for note in bbuf.notes() {
+            println!(
+                " {:04}  | {:04} | {:04.2}",
+                note.start.ppqn_idx,
+                note.length.ppqn_ct,
+                note.pitch.frequency(),
+            );
+        }
+    }
+
+    #[test]
+    fn iter_test() {
+        let notes = [
+            Pitch::C,
+            Pitch::CSharp,
+            Pitch::D,
+            Pitch::DSharp,
+            Pitch::E,
+            Pitch::F,
+            Pitch::FSharp,
+            Pitch::G,
+            Pitch::GSharp,
+            Pitch::A,
+            Pitch::ASharp,
+            Pitch::B,
+        ];
+
+        let mut bbuf = BarBuf::new();
+        for (i, note) in notes.iter().enumerate() {
+            bbuf.push_note_simple(Length::Quarter, *note, (i as u8) % 4).unwrap();
+        }
+
+        let out = bbuf.notes().collect::<Vec<EncNote>>();
+        assert_eq!(out.len(), notes.len());
+
+        for (i, (act_note, exp_note)) in out.iter().zip(notes.iter()).enumerate() {
+            let exp_pitch = EncPitch::from_pitch_octave(*exp_note, (i as u8) % 4).unwrap();
+            assert_eq!(act_note.pitch, exp_pitch);
+            assert_eq!(act_note.start.ppqn_idx, (i as u16) * Length::Quarter.to_ppqn());
+            assert_eq!(act_note.length.ppqn_ct, Length::Quarter.to_ppqn());
+        }
+    }
+
+    #[test]
+    fn from_iter() {
+        let simps = [
+            (Length::Quarter, Pitch::F, 4),
+            (Length::Quarter, Pitch::A, 4),
+            (Length::Quarter, Pitch::C, 4),
+            (Length::Quarter, Pitch::E, 4),
+        ];
+
+        let bbuf = BarBuf::from_notes_simple(&simps).unwrap();
+        assert_eq!(bbuf.notes, 4);
+    }
 
     #[test]
     fn buf_smoke() {
@@ -99,7 +221,7 @@ mod test {
 
         assert_eq!(bbuf.ppqn_idx, PPQN_QUARTER);
         assert_eq!(bbuf.notes, 1);
-        assert_eq!(bbuf.buf.len(), 3);
+        assert_eq!(bbuf.bytes().len(), 3);
     }
 
     #[test]

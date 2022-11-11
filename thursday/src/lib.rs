@@ -78,6 +78,40 @@ struct EncPitch {
     offset: u8,
 }
 
+impl EncPitch {
+    pub fn from_pitch_octave(pitch: Pitch, octave: u8) -> Result<Self, EncError> {
+        let pitch: u8 = pitch.into();
+
+        let pitch = match octave {
+            0..=9 => (octave * 12) + pitch,
+            10 if pitch <= 7 => (octave * 12) + pitch,
+            _ => {
+                return Err(EncError::ValueOutOfBounds);
+            }
+        };
+
+        Ok(EncPitch { tone: pitch, offset: 0 })
+    }
+
+    pub fn frequency(&self) -> f32 {
+        let base = tone_to_freq(self.tone);
+        if self.offset == 0 {
+            base
+        } else {
+            let next = tone_to_freq(self.tone + 1);
+            let weight = (self.offset as f32) / 256.0;
+            let diff = next - base;
+            base + (diff * weight)
+        }
+    }
+}
+
+fn tone_to_freq(tone: u8) -> f32 {
+    let oct = tone / 12;
+    let pitch: Pitch = (tone % 12).into();
+    pitch.freq_with_octave(oct)
+}
+
 impl From<KCInt> for EncPitch {
     fn from(value: KCInt) -> Self {
         match value {
@@ -254,15 +288,7 @@ pub struct EncNote {
 
 impl EncNote {
     pub fn new_simple(pitch: Pitch, octave: u8, start_ppqn: u16, length: Length) -> Result<Self, EncError> {
-        let pitch: u8 = pitch.into();
-
-        let pitch = match octave {
-            0..=9 => (octave * 12) + pitch,
-            10 if pitch <= 7 => (octave * 12) + pitch,
-            _ => {
-                return Err(EncError::ValueOutOfBounds);
-            }
-        };
+        let pitch = EncPitch::from_pitch_octave(pitch, octave)?;
 
         if start_ppqn >= PPQN_MAX {
             return Err(EncError::ValueOutOfBounds);
@@ -271,7 +297,7 @@ impl EncNote {
         let ppqn_len = length.to_ppqn();
 
         Ok(EncNote {
-            pitch: EncPitch { tone: pitch, offset: 0 },
+            pitch,
             start: EncStart { ppqn_idx: start_ppqn },
             length: EncLength { ppqn_ct: ppqn_len },
         })
