@@ -1,6 +1,6 @@
 use minijam::scale::Pitch;
 
-use crate::{EncError, Length, EncNote, PPQN_MAX};
+use crate::{EncError, Length, EncNote, PPQN_MAX, MAX_ENCODING_SIZE};
 
 
 pub struct BarBuf {
@@ -15,8 +15,9 @@ impl From<EncError> for BarError {
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, PartialEq, Eq)]
 pub enum BarError {
+    BarFull,
     ExceededBarLength,
     EncodingErr(EncError),
     NotSimpleEnough,
@@ -31,30 +32,54 @@ impl BarBuf {
         }
     }
 
-    // fn next_eighth_start_ppqn(&self) -> (u8, u16) {
-    //     // add (N - 1) to cause the next div to round up
-    //     let idx = self.ppqn_idx + (PPQN_EIGHTH - 1);
-    //     let eighth = idx / PPQN_EIGHTH;
-    //     let roundup = eighth * PPQN_EIGHTH;
-    //     (eighth as u8, roundup)
-    // }
+    // Check if the current buffer is totally full, in terms of
+    // the 64-beat/16-bar 4:4 maximum
+    fn check_full(&self) -> Result<(), BarError> {
+        if self.ppqn_idx >= PPQN_MAX {
+            return Err(BarError::BarFull);
+        } else {
+            Ok(())
+        }
+    }
 
-    pub fn push_note_simple(&mut self, length: Length, pitch: Pitch, octave: u8) -> Result<(), BarError> {
-        let mut buf = [0x00; 6];
-        let start_idx = self.ppqn_idx;
-        let note = EncNote::new_simple(pitch, octave, start_idx, length)?;
-        let note_ppqn = note.ppqn_len();
-        let new_idx = start_idx + note_ppqn;
+    // Increment the "start" ppqn index.
+    //
+    // Note: Will NOT return `BarError::BarFull` if already totally full,
+    // and will instead return `BarError::ExceededBarLength`.
+    //
+    // You should probably call `check_full()` first, before calling this
+    // function so the returned errors are consistent.
+    fn increment_ppqn(&mut self, length: Length) -> Result<(), BarError> {
+        let len = length.to_ppqn();
+        let new_idx = self.ppqn_idx + len;
 
         if new_idx > PPQN_MAX {
             return Err(BarError::ExceededBarLength);
         }
 
+        self.ppqn_idx = new_idx;
+        Ok(())
+    }
+
+    pub fn push_rest_simple(&mut self, length: Length) -> Result<(), BarError> {
+        self.check_full()?;
+        self.increment_ppqn(length)
+    }
+
+    pub fn push_note_simple(&mut self, length: Length, pitch: Pitch, octave: u8) -> Result<(), BarError> {
+        self.check_full()?;
+
+        // Encode the note to a temp buffer, returning if the encoding failed
+        let mut buf = [0x00; MAX_ENCODING_SIZE];
+        let note = EncNote::new_simple(pitch, octave, self.ppqn_idx, length)?;
+
+        // Extend our internal buffer with the encoded contents
         let rem_len = note.write_to_slice(&mut buf)?.len();
         let used = buf.len() - rem_len;
         self.buf.extend_from_slice(&buf[..used]);
 
-        self.ppqn_idx = new_idx;
+        // Update our tracking variables
+        self.increment_ppqn(length)?;
         self.notes += 1;
 
         Ok(())
@@ -90,17 +115,37 @@ mod test {
         ];
 
         for (len, n) in cases {
-            println!("{len:?}, {n}");
+            println!("notes: {len:?}, {n}");
             let mut bbuf = BarBuf::new();
-            pushn(&mut bbuf, len, n);
+            pushn_notes(&mut bbuf, len, n);
             assert_eq!(bbuf.notes, n);
             assert_eq!(bbuf.ppqn_idx, PPQN_MAX);
+
+            let res = bbuf.push_note_simple(Length::SixtyFourth, Pitch::C, 4);
+            assert_eq!(res, Err(BarError::BarFull));
+        }
+
+        for (len, n) in cases {
+            println!("rests: {len:?}, {n}");
+            let mut bbuf = BarBuf::new();
+            pushn_rests(&mut bbuf, len, n);
+            assert_eq!(bbuf.notes, 0);
+            assert_eq!(bbuf.ppqn_idx, PPQN_MAX);
+
+            let res = bbuf.push_rest_simple(Length::SixtyFourth);
+            assert_eq!(res, Err(BarError::BarFull));
         }
     }
 
-    fn pushn(bbuf: &mut BarBuf, len: Length, ct: usize) {
+    fn pushn_notes(bbuf: &mut BarBuf, len: Length, ct: usize) {
         for _ in 0..ct {
             bbuf.push_note_simple(len, Pitch::C, 4).unwrap();
+        }
+    }
+
+    fn pushn_rests(bbuf: &mut BarBuf, len: Length, ct: usize) {
+        for _ in 0..ct {
+            bbuf.push_rest_simple(len).unwrap();
         }
     }
 }

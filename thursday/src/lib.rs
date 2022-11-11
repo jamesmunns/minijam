@@ -22,6 +22,9 @@ pub const QN_BEATS_MAX: u16 = 64;
 pub const EIGHTH_BEATS_MAX: u8 = 128;
 pub const PPQN_MAX: u16 = QN_BEATS_MAX * PPQN_QUARTER;
 
+pub const MIN_ENCODING_SIZE: usize = 3;
+pub const MAX_ENCODING_SIZE: usize = 6;
+
 #[derive(Clone, Copy, Debug)]
 pub enum Length {
     TripletThirtySeconds,
@@ -62,7 +65,7 @@ impl Length {
     }
 }
 
-#[derive(Debug, PartialEq)]
+#[derive(Debug, PartialEq, Eq)]
 pub enum EncError {
     ValueOutOfBounds,
     EndOfStream,
@@ -465,7 +468,7 @@ mod test {
         let (note, remain) = EncNote::take_from_slice(&vals).unwrap();
         assert!(remain.is_empty());
 
-        let mut out = [0xFF; 3];
+        let mut out = [0xFF; MIN_ENCODING_SIZE];
         let remain = note.write_to_slice(&mut out).unwrap();
         assert!(remain.is_empty());
         assert_eq!(vals, out);
@@ -481,7 +484,7 @@ mod test {
         let (note, remain) = EncNote::take_from_slice(&vals).unwrap();
         assert!(remain.is_empty());
 
-        let mut out = [0xFF; 6];
+        let mut out = [0xFF; MAX_ENCODING_SIZE];
         let remain = note.write_to_slice(&mut out).unwrap();
         assert!(remain.is_empty());
         assert_eq!(vals, out);
