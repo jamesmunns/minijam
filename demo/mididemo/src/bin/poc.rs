@@ -77,7 +77,7 @@ pub fn main() {
         track_1.push(TrackEvent {
             delta: (PPQN_EIGHTH as u32).into(),
             kind: TrackEventKind::Midi {
-                channel: 1u8.into(),
+                channel: 0u8.into(),
                 message: MidiMessage::NoteOff {
                     key: note.into(),
                     vel: 64u8.into(),

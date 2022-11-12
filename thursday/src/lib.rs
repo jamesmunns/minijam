@@ -337,6 +337,14 @@ impl EncNote {
             .try_fold(sli, |sli, out| out.write_to_slice(sli))
     }
 
+    pub fn pitch_tone_offset(&self) -> (u8, u8) {
+        (self.pitch.tone, self.pitch.offset)
+    }
+
+    pub fn ppqn_start(&self) -> u16 {
+        self.start.ppqn_idx
+    }
+
     pub fn ppqn_len(&self) -> u16 {
         self.length.ppqn_ct
     }

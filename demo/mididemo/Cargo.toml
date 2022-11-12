@@ -8,3 +8,4 @@ edition = "2021"
 [dependencies]
 midly = { version = "0.5.2", features = ["strict"] }
 thursday = { path = "../../thursday" }
+minijam = { path = "../../core" }
