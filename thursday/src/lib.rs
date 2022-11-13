@@ -4,6 +4,7 @@
 use minijam::scale::Pitch;
 
 pub mod bars;
+pub mod euc;
 
 pub const PPQN: u16 = 192;
 pub const PPQN_WHOLE: u16 = PPQN * 4;
