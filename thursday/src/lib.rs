@@ -5,6 +5,7 @@ use minijam::scale::Pitch;
 
 pub mod bars;
 pub mod euc;
+pub mod phrdat;
 
 pub const PPQN: u16 = 192;
 pub const PPQN_WHOLE: u16 = PPQN * 4;
@@ -97,6 +98,7 @@ impl EncPitch {
         })
     }
 
+    #[allow(dead_code)]
     pub fn frequency(&self) -> f32 {
         let base = tone_to_freq(self.tone);
         if self.offset == 0 {
@@ -110,6 +112,7 @@ impl EncPitch {
     }
 }
 
+#[allow(dead_code)]
 fn tone_to_freq(tone: u8) -> f32 {
     let oct = tone / 12;
     let pitch: Pitch = (tone % 12).into();

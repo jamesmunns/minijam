@@ -23,7 +23,7 @@ pub const SINE_TABLE: [i16; 256] = [
     -9512, -8739, -7962, -7179, -6393, -5602, -4808, -4011, -3212, -2410, -1608, -804,
 ];
 
-#[derive(Copy, Clone)]
+#[derive(Debug, Copy, Clone)]
 pub enum ToneKind {
     Sine,
     Square,
