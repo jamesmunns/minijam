@@ -4,7 +4,7 @@ use std::fmt::Debug;
 
 use crate::{EncLength, EncStart, Length};
 use minijam::{
-    scale::{Pitch, Semitones, MAJOR_SCALES, MINOR_SCALES},
+    scale::{Pitch, Semitones, MAJOR_SCALES, MINOR_SCALES, PITCHES_PER_OCTAVE},
     tones::ToneKind,
 };
 use rand::Rng;
@@ -17,8 +17,8 @@ pub struct PhraseDataBuilder {
     scale: Option<Scale>,
     num_measures: Option<u8>,
     chord_progression: Option<ChordProgression>,
-
     key: Option<Pitch>,
+
     lead_voices: Vec<VoiceData>,
     chorus_voices: Vec<VoiceData>,
 }
@@ -62,6 +62,10 @@ impl PhraseDataBuilder {
             Some(old) => parameters.chord_progression.step(rng, old, num_measures),
             None => parameters.chord_progression.generate(rng, num_measures),
         });
+        self.key = Some(match self.key.take() {
+            Some(old) => parameters.key.step(rng, old),
+            None => parameters.key.generate(rng),
+        });
     }
 }
 
@@ -73,6 +77,7 @@ pub struct PhraseDataParameters {
     pub scale: ScaleParameters,
     pub num_measures: NumMeasuresParameters,
     pub chord_progression: ChordProgressionParameters,
+    pub key: KeyParameters,
 }
 
 #[derive(Debug)]
@@ -322,6 +327,32 @@ impl ChordProgressionParameters {
         }
         old.chords[num_meas - 1] = Chord::I;
         old
+    }
+}
+
+#[derive(Debug)]
+pub struct KeyParameters {
+    mutation_probability: f32,
+}
+
+impl Default for KeyParameters {
+    fn default() -> Self {
+        Self { mutation_probability: 0.1 }
+    }
+}
+
+impl KeyParameters {
+    fn generate<R: Rng>(&self, rng: &mut R) -> Pitch {
+        let val: u8 = rng.gen_range(0..PITCHES_PER_OCTAVE as u8);
+        val.into()
+    }
+
+    fn step<R: Rng>(&self, rng: &mut R, old: Pitch) -> Pitch {
+        if rng.gen_bool(self.mutation_probability.into()) {
+            self.generate(rng)
+        } else {
+            old
+        }
     }
 }
 
