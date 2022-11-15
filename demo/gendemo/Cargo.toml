@@ -9,3 +9,4 @@ edition = "2021"
 thursday = { path = "../../thursday" }
 minijam = { path = "../../core" }
 rand = { version = "0.8" }
+midly = { version = "0.5.2", features = ["strict"] }

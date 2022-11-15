@@ -2,7 +2,7 @@
 
 use std::fmt::Debug;
 
-use crate::{EncLength, EncStart, Length};
+use crate::{EncLength, EncStart, Length, PPQN_QUARTER, PPQN_EIGHTH, PPQN_16TH, euc::Euc32};
 use minijam::{
     scale::{Pitch, Semitones, MAJOR_SCALES, MINOR_SCALES, PITCHES_PER_OCTAVE},
     tones::ToneKind,
@@ -12,8 +12,8 @@ use rand::Rng;
 #[derive(Debug, Default)]
 pub struct PhraseDataBuilder {
     header: PhraseDataHeaderBuilder,
-    lead_voices: Vec<LeadVoiceDataBuilder>,
-    chorus_voices: Vec<ChorusVoiceDataBuilder>,
+    pub lead_voices: Vec<LeadVoiceDataBuilder>,
+    pub chorus_voices: Vec<ChorusVoiceDataBuilder>,
 }
 
 #[derive(Debug, Default)]
@@ -30,7 +30,7 @@ pub struct PhraseDataHeaderBuilder {
 
 #[derive(Debug)]
 pub struct PhraseDataHeader {
-    bpm: u16,
+    pub bpm: u16,
     key_kind: KeyKind,
     time_signature: TimeSignature,
     scale: Scale,
@@ -38,6 +38,20 @@ pub struct PhraseDataHeader {
     chord_progression: ChordProgression,
     key: Pitch,
     voices_ct: (u8, u8),
+}
+
+impl PhraseDataHeader {
+    fn max_beats_of_kind(&self, len: Length) -> u16 {
+        let denom_ppqn = match self.time_signature.denominator {
+            SignatureDenominator::Quarter => PPQN_QUARTER,
+            SignatureDenominator::Eighth => PPQN_EIGHTH,
+            SignatureDenominator::Sixteenth => PPQN_16TH,
+        };
+        let per_meas_ppqn = denom_ppqn * (self.time_signature.numerator as u16);
+        let ttl_ppqn = per_meas_ppqn * self.num_measures as u16;
+        let divisor = len.to_ppqn();
+        ttl_ppqn / divisor
+    }
 }
 
 impl PhraseDataBuilder {
@@ -119,7 +133,10 @@ impl PhraseDataBuilder {
         let header = self.build_header();
 
         self.lead_voices.iter_mut().for_each(|lvdb| {
-            lvdb.fill(rng, &header);
+            lvdb.fill(rng, &header, &parameters.lead_voices);
+        });
+        self.chorus_voices.iter_mut().for_each(|lvdb| {
+            lvdb.fill(rng, &header, &parameters.chorus_voices);
         });
     }
 }
@@ -134,6 +151,8 @@ pub struct PhraseDataParameters {
     pub chord_progression: ChordProgressionParameters,
     pub key: KeyParameters,
     pub voices: VoicesParameters,
+    pub lead_voices: LeadVoiceDataParameters,
+    pub chorus_voices: ChorusVoiceDataParameters,
 }
 
 #[derive(Debug)]
@@ -426,10 +445,10 @@ pub struct VoicesParameters {
 impl Default for VoicesParameters {
     fn default() -> Self {
         Self {
-            lead_voices_min: 1,
-            lead_voices_max: 5,
-            chorus_voices_min: 1,
-            chorus_voices_max: 3,
+            lead_voices_min: 2,
+            lead_voices_max: 4,
+            chorus_voices_min: 2,
+            chorus_voices_max: 4,
             total_voices_max: 8,
             lead_voices_mutation_probability: 0.1,
             chorus_voices_mutation_probability: 0.1,
@@ -471,35 +490,256 @@ impl VoicesParameters {
 #[derive(Debug, Default)]
 pub struct LeadVoiceDataBuilder {
     resolution: Option<Length>,
-    probability: Option<f32>,
-    rhythm: Option<Rhythm>,
+    euc: Option<(u8, u8)>,
+    pub rhythm: Vec<EncRhythm>,
     voice: Option<ToneKind>,
     refrain_measures: Vec<bool>,
 }
 
 impl LeadVoiceDataBuilder {
-    pub fn fill<R: Rng>(&mut self, rng: &mut R, header: &PhraseDataHeader) {
+    pub fn fill<R: Rng>(&mut self, rng: &mut R, header: &PhraseDataHeader, parameters: &LeadVoiceDataParameters) {
+        let mut needs_regen = false;
+        let resolution;
+        let beats;
+        let length;
 
+        self.resolution = Some({
+            resolution = match self.resolution.take() {
+                Some(old) => {
+                    let (dirty, resolution) = parameters.resolution.step(rng, old);
+                    needs_regen |= dirty;
+                    resolution
+                },
+                None => {
+                    needs_regen = true;
+                    parameters.resolution.generate(rng)
+                },
+            };
+            resolution
+        });
+
+        let max_notes = header.max_beats_of_kind(resolution);
+        let max_notes_u8 = max_notes.min(255) as u8;
+
+        // TODO: This will create a repeating pattern for the entire phrase.
+        // I probably want to be more granular, maybe at a measure or some
+        // other sub-phrase chunk? Probably okay for electronicish music,
+        // but unlikely to produce a nice melodic variation (we'll see,
+        // I guess!)
+        //
+        // Maybe at some point, build sub-blocks that get resized, which have
+        // different parameters?
+
+        self.euc = Some(match self.euc.take() {
+            Some((old_beats, old_length)) => {
+                let (dirty, euc_beats, euc_length) = parameters.euc.step(rng, max_notes_u8, old_beats, old_length);
+                needs_regen |= dirty;
+                beats = euc_beats;
+                length = euc_length;
+                (euc_beats, euc_length)
+            },
+            None => {
+                needs_regen = true;
+                let (euc_beats, euc_length) = parameters.euc.generate(rng, max_notes_u8);
+                beats = euc_beats;
+                length = euc_length;
+                (euc_beats, euc_length)
+            },
+        });
+
+        if needs_regen {
+            let euc = Euc32::new(beats as u32, length as u32).unwrap();
+            let euc_iter = euc.cycler();
+            let res_len = resolution.to_ppqn();
+
+            self.rhythm = (0..max_notes)
+                .map(|i| i * res_len)
+                .zip(euc_iter)
+                .filter_map(|(start, hit)| {
+                    if hit {
+                        Some(EncRhythm { start: start.try_into().unwrap(), length: res_len.try_into().unwrap() })
+                    } else {
+                        None
+                    }
+                }).collect();
+        }
     }
 }
 
 #[derive(Debug, Default)]
 pub struct ChorusVoiceDataBuilder {
     resolution: Option<Length>,
-    probability: Option<f32>,
-    rhythm: Option<Rhythm>,
+    euc: Option<(u8, u8)>,
+    pub rhythm: Vec<EncRhythm>,
     voice: Option<ToneKind>,
     refrain_measures: Vec<bool>,
 }
 
-#[derive(Debug, Default)]
-pub struct LeadVoiceDataParameters {
-    resolution: LeadVoiceResolutionParameters,
+impl ChorusVoiceDataBuilder {
+    pub fn fill<R: Rng>(&mut self, rng: &mut R, header: &PhraseDataHeader, parameters: &ChorusVoiceDataParameters) {
+        let mut needs_regen = false;
+        let resolution;
+        let beats;
+        let length;
+
+        self.resolution = Some({
+            resolution = match self.resolution.take() {
+                Some(old) => {
+                    let (dirty, resolution) = parameters.resolution.step(rng, old);
+                    needs_regen |= dirty;
+                    resolution
+                },
+                None => {
+                    needs_regen = true;
+                    parameters.resolution.generate(rng)
+                },
+            };
+            resolution
+        });
+
+        let max_notes = header.max_beats_of_kind(resolution);
+        let max_notes_u8 = max_notes.min(255) as u8;
+
+        // TODO: This will create a repeating pattern for the entire phrase.
+        // I probably want to be more granular, maybe at a measure or some
+        // other sub-phrase chunk? Probably okay for electronicish music,
+        // but unlikely to produce a nice melodic variation (we'll see,
+        // I guess!)
+        //
+        // Maybe at some point, build sub-blocks that get resized, which have
+        // different parameters?
+
+        self.euc = Some(match self.euc.take() {
+            Some((old_beats, old_length)) => {
+                let (dirty, euc_beats, euc_length) = parameters.euc.step(rng, max_notes_u8, old_beats, old_length);
+                needs_regen |= dirty;
+                beats = euc_beats;
+                length = euc_length;
+                (euc_beats, euc_length)
+            },
+            None => {
+                needs_regen = true;
+                let (euc_beats, euc_length) = parameters.euc.generate(rng, max_notes_u8);
+                beats = euc_beats;
+                length = euc_length;
+                (euc_beats, euc_length)
+            },
+        });
+
+        if needs_regen {
+            let euc = Euc32::new(beats as u32, length as u32).unwrap();
+            let euc_iter = euc.cycler();
+            let res_len = resolution.to_ppqn();
+
+            self.rhythm = (0..max_notes)
+                .map(|i| i * res_len)
+                .zip(euc_iter)
+                .filter_map(|(start, hit)| {
+                    if hit {
+                        Some(EncRhythm { start: start.try_into().unwrap(), length: res_len.try_into().unwrap() })
+                    } else {
+                        None
+                    }
+                }).collect();
+        }
+    }
 }
 
-#[derive(Debug, Default)]
+#[derive(Debug)]
+pub struct LeadVoiceDataParameters {
+    resolution: LeadVoiceResolutionParameters,
+    euc: EuclideanGenerationParameters,
+}
+
+impl Default for LeadVoiceDataParameters {
+    fn default() -> Self {
+        Self {
+            resolution: LeadVoiceResolutionParameters::default(),
+            euc: EuclideanGenerationParameters {
+                min_beats: 4,
+                max_beats: 8,
+                beats_mutation_probability: 0.1,
+                min_length: 8,
+                max_length: 16,
+                length_mutation_probability: 0.1,
+            },
+        }
+    }
+}
+
+#[derive(Debug)]
 pub struct ChorusVoiceDataParameters {
     resolution: ChorusVoiceResolutionParameters,
+    euc: EuclideanGenerationParameters,
+}
+
+impl Default for ChorusVoiceDataParameters {
+    fn default() -> Self {
+        Self {
+            resolution: ChorusVoiceResolutionParameters::default(),
+            euc: EuclideanGenerationParameters {
+                min_beats: 8,
+                max_beats: 16,
+                beats_mutation_probability: 0.1,
+                min_length: 8,
+                max_length: 16,
+                length_mutation_probability: 0.1,
+            },
+        }
+    }
+}
+
+#[derive(Debug)]
+pub struct EuclideanGenerationParameters {
+    min_beats: u8,
+    max_beats: u8,
+    beats_mutation_probability: f32,
+    min_length: u8,
+    max_length: u8,
+    length_mutation_probability: f32,
+}
+
+impl Default for EuclideanGenerationParameters {
+    fn default() -> Self {
+        Self {
+            min_beats: 0,
+            max_beats: 32,
+            beats_mutation_probability: 0.1,
+            min_length: 3,
+            max_length: 32,
+            length_mutation_probability: 0.1,
+        }
+    }
+}
+
+impl EuclideanGenerationParameters {
+    #[inline]
+    fn generate<R: Rng>(&self, rng: &mut R, max_len: u8) -> (u8, u8) {
+        let max_length = self.max_length.min(max_len);
+        // TODO: Is it possible to have a max length shorter than min_length?
+        // I guess if we are generating whole notes, and the min is 4, and the
+        // max len is like three measures. Avoid panics for now.
+        let min_length = self.min_length.min(max_length);
+
+        let length = rng.gen_range(min_length..=max_length);
+        let max_beats = self.max_beats.min(length);
+        let beats = rng.gen_range(self.min_beats..=max_beats);
+        (beats, length)
+    }
+
+    #[inline]
+    fn step<R: Rng>(&self, rng: &mut R, max_len: u8, old_beats: u8, old_length: u8) -> (bool, u8, u8) {
+        let trunc_len = max_len < old_length;
+        let new_length = rng.gen_bool(self.length_mutation_probability.into());
+        let new_beats = rng.gen_bool(self.beats_mutation_probability.into());
+
+        if !(trunc_len || new_length || new_beats) {
+            (false, old_beats, old_length)
+        } else {
+            let (beats, len) = self.generate(rng, max_len);
+            (true, beats, len)
+        }
+    }
 }
 
 #[derive(Debug)]
@@ -515,10 +755,8 @@ impl Default for LeadVoiceResolutionParameters {
     fn default() -> Self {
         Self(VoiceResolutionParameters {
             resolution_choices: vec![
-                Length::TripletSixteenth,
                 Length::TripletEighth,
                 Length::TripletQuarter,
-                Length::Sixteenth,
                 Length::Eighth,
                 Length::Quarter,
             ],
@@ -535,7 +773,6 @@ impl Default for ChorusVoiceResolutionParameters {
         Self(VoiceResolutionParameters {
             resolution_choices: vec![
                 Length::TripletHalf,
-                Length::Quarter,
                 Length::Half,
                 Length::Whole,
             ],
@@ -603,11 +840,6 @@ pub enum KeyKind {
     Minor,
 }
 
-#[derive(Debug)]
-pub struct Rhythm {
-    pattern: EncRhythm,
-}
-
 #[derive(Debug, PartialEq, Eq, Clone, Copy)]
 #[repr(u8)]
 pub enum Chord {
@@ -673,4 +905,14 @@ impl Debug for Scale {
 pub struct EncRhythm {
     start: EncStart,
     length: EncLength,
+}
+
+impl EncRhythm {
+    pub fn ppqn_start(&self) -> u16 {
+        self.start.ppqn_idx
+    }
+
+    pub fn ppqn_len(&self) -> u16 {
+        self.length.ppqn_ct
+    }
 }

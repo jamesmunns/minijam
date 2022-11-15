@@ -157,6 +157,20 @@ struct EncStart {
     ppqn_idx: u16,
 }
 
+impl TryFrom<u16> for EncStart {
+    type Error = EncError;
+
+    fn try_from(count: u16) -> Result<Self, Self::Error> {
+        if count >= PPQN_MAX {
+            // NOTE! Cannot be = to PPQN_MAX, as that would be the first
+            // pulse on the NEXT segment
+            Err(EncError::ValueOutOfBounds)
+        } else {
+            Ok(EncStart { ppqn_idx: count })
+        }
+    }
+}
+
 impl TryFrom<KCInt> for EncStart {
     type Error = EncError;
 
@@ -206,6 +220,20 @@ impl From<EncStart> for KCInt {
 struct EncLength {
     // NOTE: Valid Range 0..=PPQN_MAX
     ppqn_ct: u16,
+}
+
+impl TryFrom<u16> for EncLength {
+    type Error = EncError;
+
+    fn try_from(count: u16) -> Result<Self, Self::Error> {
+        if count > PPQN_MAX {
+            // NOTE: CAN be equal to PPQN_MAX, as this would be equivalent
+            // to a 64-QN hold
+            Err(EncError::ValueOutOfBounds)
+        } else {
+            Ok(EncLength { ppqn_ct: count })
+        }
+    }
 }
 
 impl TryFrom<KCInt> for EncLength {

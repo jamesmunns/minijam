@@ -1,6 +1,32 @@
+#[derive(Clone)]
 pub struct Euc32 {
     interval: u32,
     data: u32,
+}
+
+#[derive(Clone)]
+pub struct EucCycler {
+    euc: Euc32,
+    work_data: u32,
+    remaining: u32,
+}
+
+impl Iterator for EucCycler {
+    type Item = bool;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        loop {
+            if self.remaining != 0 {
+                self.remaining -= 1;
+                let ret = (self.work_data & 0b1) != 0;
+                self.work_data >>= 1;
+                break Some(ret);
+            }
+            self.work_data = self.euc.data;
+            self.remaining = self.euc.interval;
+            assert!(self.remaining != 0);
+        }
+    }
 }
 
 impl Euc32 {
@@ -45,6 +71,14 @@ impl Euc32 {
         }
         out += "]";
         out
+    }
+
+    pub fn cycler(&self) -> EucCycler {
+        EucCycler {
+            euc: self.clone(),
+            work_data: self.data,
+            remaining: self.interval,
+        }
     }
 }
 
