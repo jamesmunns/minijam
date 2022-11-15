@@ -11,6 +11,13 @@ use rand::Rng;
 
 #[derive(Debug, Default)]
 pub struct PhraseDataBuilder {
+    header: PhraseDataHeaderBuilder,
+    lead_voices: Vec<LeadVoiceDataBuilder>,
+    chorus_voices: Vec<ChorusVoiceDataBuilder>,
+}
+
+#[derive(Debug, Default)]
+pub struct PhraseDataHeaderBuilder {
     bpm: Option<u16>,
     key_kind: Option<KeyKind>,
     time_signature: Option<TimeSignature>,
@@ -18,53 +25,101 @@ pub struct PhraseDataBuilder {
     num_measures: Option<u8>,
     chord_progression: Option<ChordProgression>,
     key: Option<Pitch>,
+    voices_ct: Option<(u8, u8)>,
+}
 
-    lead_voices: Vec<VoiceData>,
-    chorus_voices: Vec<VoiceData>,
+#[derive(Debug)]
+pub struct PhraseDataHeader {
+    bpm: u16,
+    key_kind: KeyKind,
+    time_signature: TimeSignature,
+    scale: Scale,
+    num_measures: u8,
+    chord_progression: ChordProgression,
+    key: Pitch,
+    voices_ct: (u8, u8),
 }
 
 impl PhraseDataBuilder {
+    pub fn build_header(&self) -> PhraseDataHeader {
+        PhraseDataHeader {
+            bpm: *self.header.bpm.as_ref().unwrap(),
+            key_kind: self.header.key_kind.as_ref().unwrap().clone(),
+            time_signature: self.header.time_signature.as_ref().unwrap().clone(),
+            scale: self.header.scale.as_ref().unwrap().clone(),
+            num_measures: *self.header.num_measures.as_ref().unwrap(),
+            chord_progression: self.header.chord_progression.as_ref().unwrap().clone(),
+            key: *self.header.key.as_ref().unwrap(),
+            voices_ct: *self.header.voices_ct.as_ref().unwrap(),
+        }
+    }
+
     pub fn fill<R: Rng>(&mut self, rng: &mut R, parameters: &PhraseDataParameters) {
         let key_kind;
         let time_signature;
         let num_measures;
+        let lead_voices;
+        let chorus_voices;
 
-        self.bpm = Some(match self.bpm.take() {
+        self.header.bpm = Some(match self.header.bpm.take() {
             Some(bpm) => parameters.bpm.step(rng, bpm),
             None => parameters.bpm.generate(rng),
         });
-        self.key_kind = Some({
-            key_kind = match self.key_kind.take() {
+        self.header.key_kind = Some({
+            key_kind = match self.header.key_kind.take() {
                 Some(old) => parameters.key_kind.step(rng, old),
                 None => parameters.key_kind.generate(rng),
             };
             key_kind.clone()
         });
-        self.time_signature = Some({
-            time_signature = match self.time_signature.take() {
+        self.header.time_signature = Some({
+            time_signature = match self.header.time_signature.take() {
                 Some(old) => parameters.time_signature.step(rng, old),
                 None => parameters.time_signature.generate(rng),
             };
             time_signature.clone()
         });
-        self.scale = Some(match self.scale.take() {
+        self.header.scale = Some(match self.header.scale.take() {
             Some(old) => parameters.scale.step(rng, old, key_kind),
             None => parameters.scale.generate(rng, key_kind),
         });
-        self.num_measures = Some({
-            num_measures = match self.num_measures.take() {
+        self.header.num_measures = Some({
+            num_measures = match self.header.num_measures.take() {
                 Some(old) => parameters.num_measures.step(rng, old, time_signature),
                 None => parameters.num_measures.generate(rng, time_signature),
             };
             num_measures
         });
-        self.chord_progression = Some(match self.chord_progression.take() {
+        self.header.chord_progression = Some(match self.header.chord_progression.take() {
             Some(old) => parameters.chord_progression.step(rng, old, num_measures),
             None => parameters.chord_progression.generate(rng, num_measures),
         });
-        self.key = Some(match self.key.take() {
+        self.header.key = Some(match self.header.key.take() {
             Some(old) => parameters.key.step(rng, old),
             None => parameters.key.generate(rng),
+        });
+        self.header.voices_ct = Some({
+            let (ld, ch) = match self.header.voices_ct.take() {
+                Some((old_lead, old_chorus)) => parameters.voices.step(rng, old_lead, old_chorus),
+                None => parameters.voices.generate(rng),
+            };
+            lead_voices = ld;
+            chorus_voices = ch;
+            (ld, ch)
+        });
+
+        // voices
+        //
+        // TODO: This biases to keep the lowest index voices around. Consider (sometimes?)
+        // shuffling/rotating the voices so that we don't have one or more "sticky" ones
+        // below the min threshold
+        self.lead_voices.resize_with(lead_voices.into(), LeadVoiceDataBuilder::default);
+        self.chorus_voices.resize_with(chorus_voices.into(), ChorusVoiceDataBuilder::default);
+
+        let header = self.build_header();
+
+        self.lead_voices.iter_mut().for_each(|lvdb| {
+            lvdb.fill(rng, &header);
         });
     }
 }
@@ -78,6 +133,7 @@ pub struct PhraseDataParameters {
     pub num_measures: NumMeasuresParameters,
     pub chord_progression: ChordProgressionParameters,
     pub key: KeyParameters,
+    pub voices: VoicesParameters,
 }
 
 #[derive(Debug)]
@@ -356,14 +412,176 @@ impl KeyParameters {
     }
 }
 
-
 #[derive(Debug)]
-pub struct VoiceData {
+pub struct VoicesParameters {
+    lead_voices_min: u8,
+    lead_voices_max: u8,
+    chorus_voices_min: u8,
+    chorus_voices_max: u8,
+    total_voices_max: u8,
+    lead_voices_mutation_probability: f32,
+    chorus_voices_mutation_probability: f32,
+}
+
+impl Default for VoicesParameters {
+    fn default() -> Self {
+        Self {
+            lead_voices_min: 1,
+            lead_voices_max: 5,
+            chorus_voices_min: 1,
+            chorus_voices_max: 3,
+            total_voices_max: 8,
+            lead_voices_mutation_probability: 0.1,
+            chorus_voices_mutation_probability: 0.1,
+        }
+    }
+}
+
+impl VoicesParameters {
+    fn gen_chorus<R: Rng>(&self, rng: &mut R) -> u8 {
+        rng.gen_range(self.chorus_voices_min..self.chorus_voices_max)
+    }
+
+    fn gen_leads<R: Rng>(&self, rng: &mut R, chorus: u8) -> u8 {
+        let leads_max = (self.total_voices_max - chorus).min(self.lead_voices_max);
+        rng.gen_range(self.lead_voices_min..leads_max)
+    }
+
+    fn generate<R: Rng>(&self, rng: &mut R) -> (u8, u8) {
+        let chorus = self.gen_chorus(rng);
+        let leads = self.gen_leads(rng, chorus);
+        (leads, chorus)
+    }
+
+    fn step<R: Rng>(&self, rng: &mut R, old_lead: u8, old_chorus: u8) -> (u8, u8) {
+        let chorus = if rng.gen_bool(self.chorus_voices_mutation_probability.into()) {
+            self.gen_chorus(rng)
+        } else {
+            old_chorus
+        };
+        let leads = if rng.gen_bool(self.lead_voices_mutation_probability.into()) {
+            self.gen_leads(rng, chorus)
+        } else {
+            old_lead.min(self.total_voices_max - chorus)
+        };
+        (leads, chorus)
+    }
+}
+
+#[derive(Debug, Default)]
+pub struct LeadVoiceDataBuilder {
     resolution: Option<Length>,
     probability: Option<f32>,
     rhythm: Option<Rhythm>,
     voice: Option<ToneKind>,
     refrain_measures: Vec<bool>,
+}
+
+impl LeadVoiceDataBuilder {
+    pub fn fill<R: Rng>(&mut self, rng: &mut R, header: &PhraseDataHeader) {
+
+    }
+}
+
+#[derive(Debug, Default)]
+pub struct ChorusVoiceDataBuilder {
+    resolution: Option<Length>,
+    probability: Option<f32>,
+    rhythm: Option<Rhythm>,
+    voice: Option<ToneKind>,
+    refrain_measures: Vec<bool>,
+}
+
+#[derive(Debug, Default)]
+pub struct LeadVoiceDataParameters {
+    resolution: LeadVoiceResolutionParameters,
+}
+
+#[derive(Debug, Default)]
+pub struct ChorusVoiceDataParameters {
+    resolution: ChorusVoiceResolutionParameters,
+}
+
+#[derive(Debug)]
+pub struct VoiceResolutionParameters {
+    resolution_choices: Vec<Length>,
+    mutation_percentage: f32,
+}
+
+#[derive(Debug)]
+pub struct LeadVoiceResolutionParameters(VoiceResolutionParameters);
+
+impl Default for LeadVoiceResolutionParameters {
+    fn default() -> Self {
+        Self(VoiceResolutionParameters {
+            resolution_choices: vec![
+                Length::TripletSixteenth,
+                Length::TripletEighth,
+                Length::TripletQuarter,
+                Length::Sixteenth,
+                Length::Eighth,
+                Length::Quarter,
+            ],
+            mutation_percentage: 0.1,
+        })
+    }
+}
+
+#[derive(Debug)]
+pub struct ChorusVoiceResolutionParameters(VoiceResolutionParameters);
+
+impl Default for ChorusVoiceResolutionParameters {
+    fn default() -> Self {
+        Self(VoiceResolutionParameters {
+            resolution_choices: vec![
+                Length::TripletHalf,
+                Length::Quarter,
+                Length::Half,
+                Length::Whole,
+            ],
+            mutation_percentage: 0.1,
+        })
+    }
+}
+
+impl ChorusVoiceResolutionParameters {
+    #[inline]
+    fn generate<R: Rng>(&self, rng: &mut R) -> Length {
+        self.0.generate(rng)
+    }
+
+    #[inline]
+    fn step<R: Rng>(&self, rng: &mut R, old: Length) -> (bool, Length) {
+        self.0.step(rng, old)
+    }
+}
+
+impl LeadVoiceResolutionParameters {
+    #[inline]
+    fn generate<R: Rng>(&self, rng: &mut R) -> Length {
+        self.0.generate(rng)
+    }
+
+    #[inline]
+    fn step<R: Rng>(&self, rng: &mut R, old: Length) -> (bool, Length) {
+        self.0.step(rng, old)
+    }
+}
+
+impl VoiceResolutionParameters {
+    fn generate<R: Rng>(&self, rng: &mut R) -> Length {
+        let idx = rng.gen_range(0..self.resolution_choices.len());
+        self.resolution_choices[idx]
+    }
+
+    fn step<R: Rng>(&self, rng: &mut R, old: Length) -> (bool, Length) {
+        if rng.gen_bool(self.mutation_percentage.into()) {
+            let length = self.generate(rng);
+            (old != length, length)
+        } else {
+            (false, old)
+        }
+    }
 }
 
 #[derive(Debug, Clone)]
@@ -390,7 +608,7 @@ pub struct Rhythm {
     pattern: EncRhythm,
 }
 
-#[derive(Debug, PartialEq, Eq)]
+#[derive(Debug, PartialEq, Eq, Clone, Copy)]
 #[repr(u8)]
 pub enum Chord {
     I,
@@ -415,6 +633,7 @@ impl From<u8> for Chord {
     }
 }
 
+#[derive(Clone)]
 pub struct ChordProgression {
     chords: Vec<Chord>,
 }

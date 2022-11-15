@@ -27,7 +27,7 @@ pub const PPQN_MAX: u16 = QN_BEATS_MAX * PPQN_QUARTER;
 pub const MIN_ENCODING_SIZE: usize = 3;
 pub const MAX_ENCODING_SIZE: usize = 6;
 
-#[derive(Clone, Copy, Debug)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Length {
     TripletThirtySeconds,
     TripletSixteenth,
