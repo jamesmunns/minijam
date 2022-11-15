@@ -16,8 +16,8 @@ pub struct PhraseDataBuilder {
     time_signature: Option<TimeSignature>,
     scale: Option<Scale>,
     num_measures: Option<u8>,
-
     chord_progression: Option<ChordProgression>,
+
     key: Option<Pitch>,
     lead_voices: Vec<VoiceData>,
     chorus_voices: Vec<VoiceData>,
@@ -299,7 +299,7 @@ impl ChordProgressionParameters {
         let mut new = Vec::with_capacity(num_meas as usize);
         new.push(Chord::I);
         for _ in 0..(num_meas - 3) {
-            new.push(rng.gen_range(Chord::I as u8..=Chord::VII as u8).into());
+            new.push(rng.gen_range(Chord::I as u8..=Chord::VI as u8).into());
         }
         new.push(if rng.gen() { Chord::IV } else { Chord::V });
         new.push(Chord::I);
@@ -312,7 +312,7 @@ impl ChordProgressionParameters {
         old.chords.resize_with(num_meas, || Chord::I);
         for ch in &mut old.chords[1..(num_meas - 2)] {
             if rng.gen_bool(self.mutation_probability.into()) {
-                *ch = rng.gen_range(Chord::I as u8..=Chord::VII as u8).into();
+                *ch = rng.gen_range(Chord::I as u8..=Chord::VI as u8).into();
             }
         }
         let sec = &mut old.chords[num_meas - 2];
@@ -368,7 +368,6 @@ pub enum Chord {
     IV,
     V,
     VI,
-    VII,
 }
 
 impl From<u8> for Chord {
@@ -380,7 +379,6 @@ impl From<u8> for Chord {
             3 => Chord::IV,
             4 => Chord::V,
             5 => Chord::VI,
-            6 => Chord::VII,
             _ => Chord::I,
         }
     }

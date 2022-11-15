@@ -9,10 +9,10 @@ fn main() {
     let mut builder = PhraseDataBuilder::default();
     println!("{:#?}", builder);
 
-    for _ in 0..1 {
+    for _ in 0..10 {
         builder.fill(&mut rng, &params);
         println!("{:#?}", builder);
-        sleep(Duration::from_millis(500));
+        sleep(Duration::from_millis(2000));
     }
 
 }
